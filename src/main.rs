@@ -1,62 +1,134 @@
 use anyhow::Result;
-use pixel_loop::canvas::{Canvas, CrosstermCanvas, RenderableCanvas};
+use pixel_loop::canvas::{self, Canvas, CrosstermCanvas, RenderableCanvas};
 use pixel_loop::input::{CrosstermInputState, KeyboardKey, KeyboardState};
 use pixel_loop::rand::Rng;
 use pixel_loop::{color::*, NextLoopState};
 
-struct Box {
-    box_position: (i64, i64),
-    box_direction: (i64, i64),
-    box_size: (u32, u32),
+#[derive(Debug)]
+enum TetrominoShape {
+    L,
+    Square,
+    T,
+    Straight,
+    Skew
+}
+struct Tetromino {
+    shape: TetrominoShape,
+    x: i64,
+    y: i64,
     color: Color,
-    shadow_color: Color,
+    stopped: bool,
 }
 
+fn would_tetromino_collide_with_canvas<C: Canvas>( 
+        Tetromino{ shape, x, y, .. }: &Tetromino, 
+        canvas: &C,
+    ) -> bool {
+        let empty = Color::from_rgb(0, 0, 0);
+        match shape {
+            TetrominoShape::L => {
+             canvas.maybe_get(*x, *y + 1) != Some(&empty) 
+                || canvas.maybe_get(*x + 1, *y + 1) != Some(&empty)
+            },
+            TetrominoShape::Square => {
+             canvas.maybe_get(*x, *y + 1) != Some(&empty) 
+                || canvas.maybe_get(*x + 1, *y + 1) != Some(&empty)
+            },
+            TetrominoShape::T => {
+             canvas.maybe_get(*x, *y + 1) != Some(&empty)
+            },
+            TetrominoShape::Straight => {
+             canvas.maybe_get(*x, *y + 1) != Some(&empty) 
+                || canvas.maybe_get(*x + 1, *y + 1) != Some(&empty)
+                || canvas.maybe_get(*x + 2, *y + 1) != Some(&empty)
+                || canvas.maybe_get(*x + 3, *y + 1) != Some(&empty)
+                || canvas.maybe_get(*x + 4, *y + 1) != Some(&empty)
+            },
+            TetrominoShape::Skew => {
+             canvas.maybe_get(*x, *y + 1) != Some(&empty) 
+                || canvas.maybe_get(*x + 1, *y + 1) != Some(&empty)
+            },
+            _ => panic!("Collision calculation for {:?} shape not implemented yet", 
+            shape
+        ),
+    }
+        
+    }
+
+struct Board {
+    tetrominos: Vec<Tetromino>,
+    virtual_y_stop: i64
+}
+
+impl Board {
+    pub fn new() -> Self {
+        Self {
+            tetrominos: vec![],
+            // @FIXME: Calculate based on terminal height and shown digits
+            // height, to center dispaly
+            virtual_y_stop: 80,
+        }
+    }
+
+    pub fn add_tetromino(&mut self, x: i64, y: i64, color: Color, shape: TetrominoShape) {
+        self.tetrominos.push(Tetromino { x, y, color, shape, stopped: false})
+    }
+
+    pub fn render<C: Canvas>(&self, canvas: &mut C) {
+        for Tetromino{ shape, x, y, color, stopped} in self.tetrominos.iter() {
+            match shape {
+                TetrominoShape::L => {
+                    canvas.filled_rect(*x, *y - 2, 1, 3, color);   
+                    canvas.filled_rect(*x + 1, *y, 1, 1, color);   
+                },
+
+                TetrominoShape::Square => {
+                    canvas.filled_rect(*x, *y - 1, 2, 2, color);   
+                },
+
+                TetrominoShape::T => {
+                    canvas.filled_rect(*x -1, *y - 1, 3, 1, color);   
+                    canvas.filled_rect(*x, *y, 1, 1, color);
+                },
+
+                TetrominoShape::Straight => {
+                    canvas.filled_rect(*x, *y, 5, 1, color);   
+                },
+
+                TetrominoShape::Skew => {
+                    canvas.filled_rect(*x, *y, 2, 1, color);   
+                    canvas.filled_rect(*x + 1, *y - 1, 2, 1, color);   
+                },
+
+                _ => panic!("Render implementation for {:?} shape not implemented yet", shape)
+            }
+        }
+    }
+
+    
+
+    pub fn update<C: Canvas>(&mut self, canvas: &C) {
+        for tetromino in self.tetrominos.iter_mut() {           
+            if !tetromino.stopped && !would_tetromino_collide_with_canvas(tetromino, canvas) {
+                tetromino.y += 1;
+            }
+
+            if tetromino.y == self.virtual_y_stop {
+                tetromino.stopped = true;
+            }
+
+        }
+    }
+
+}
 struct State {
-    my_box: Box,
-    boxes: Vec<Box>,
+   board: Board
 }
 
 impl State {
     fn new() -> Self {
         Self {
-            my_box: Box {
-                box_position: (0, 0),
-                box_direction: (1, 1),
-                box_size: (5, 5),
-                color: Color::from_rgb(156, 80, 182),
-                shadow_color: Color::from_rgb(104, 71, 141),
-            },
-            boxes: vec![
-                Box {
-                    box_position: (0, 0),
-                    box_direction: (1, 1),
-                    box_size: (20, 10),
-                    color: Color::from_rgb(255, 255, 128),
-                    shadow_color: Color::from_rgb(128, 128, 64),
-                },
-                Box {
-                    box_position: (0, 4),
-                    box_direction: (2, 1),
-                    box_size: (5, 5),
-                    color: Color::from_rgb(128, 255, 128),
-                    shadow_color: Color::from_rgb(64, 128, 64),
-                },
-                Box {
-                    box_position: (0, 23),
-                    box_direction: (1, 2),
-                    box_size: (20, 20),
-                    color: Color::from_rgb(255, 128, 64),
-                    shadow_color: Color::from_rgb(128, 64, 32),
-                },
-                Box {
-                    box_position: (0, 10),
-                    box_direction: (2, 2),
-                    box_size: (10, 10),
-                    color: Color::from_rgb(255, 0, 128),
-                    shadow_color: Color::from_rgb(128, 0, 64),
-                },
-            ],
+           board: Board::new(),
         }
     }
 }
@@ -83,85 +155,44 @@ fn main() -> Result<()> {
             }
 
             if input.is_key_pressed(KeyboardKey::Space) {
-                for b in s.boxes.iter_mut() {
-                    b.color = Color::from_rgb(e.rand.gen(), e.rand.gen(), e.rand.gen());
-                    let mut shadow_color = b.color.as_hsl();
-                    shadow_color.s = (shadow_color.s - 20.0).clamp(0.0, 100.0);
-                    shadow_color.l = (shadow_color.l - 20.0).clamp(0.0, 100.0);
-                    b.shadow_color = Color::from(shadow_color);
-                }
-            }
+                let x =e.rand.gen_range(0..width as i64 - 1);
+                let color = 
+                Color::from_rgb(e.rand.gen::<u8>(), e.rand.gen::<u8>(), e.rand.gen::<u8>());
 
-            if input.is_key_down(KeyboardKey::Up) {
-                s.my_box.box_position.1 -= 1;
-            }
-            if input.is_key_down(KeyboardKey::Down) {
-                s.my_box.box_position.1 += 1;
-            }
-            if input.is_key_down(KeyboardKey::Left) {
-                s.my_box.box_position.0 -= 1;
-            }
-            if input.is_key_down(KeyboardKey::Right) {
-                s.my_box.box_position.0 += 1;
-            }
+                // let shape = if e.rand.gen::<f64>() < 0.5 {
+                //     TetrominoShape:: L
+                // } else {
+                //     TetrominoShape:: Square
+                // };
 
-            for b in s.boxes.iter_mut() {
-                let (mut px, mut py) = b.box_position;
-                let (mut dx, mut dy) = b.box_direction;
-                let (sx, sy) = b.box_size;
-                px += dx;
-                py += dy;
+                let shape = match e.rand.gen_range(0..5) {
+                    0 => TetrominoShape::L,
+                    1 => TetrominoShape::Square,
+                    2 => TetrominoShape::Straight,
+                    3 => TetrominoShape::T,
+                    4 => TetrominoShape::Skew,
+                    _ => panic!("Something very strange happened!")
+                };
 
-                if px < 0 || px + sx as i64 >= width as i64 {
-                    dx *= -1;
-                    px += dx;
-                }
-                if py < 0 || py + sy as i64 >= height as i64 {
-                    dy *= -1;
-                    py += dy;
-                }
+                // let shape = TetrominoShape::L;
 
-                b.box_position = (px, py);
-                b.box_direction = (dx, dy);
+                // @FIXME: Only for testing, remove later
+                s.board.add_tetromino(
+                    x,
+                 0, 
+                 color, 
+                 shape);
             }
-
+            
+            s.board.update(canvas);
             Ok(NextLoopState::Continue)
         },
         |e, s, i, canvas, dt| {
             // RENDER BEGIN
             canvas.clear_screen(&Color::from_rgb(0, 0, 0));
 
-            for b in s.boxes.iter() {
-                canvas.filled_rect(
-                    b.box_position.0 + 2,
-                    b.box_position.1 + 2,
-                    b.box_size.0,
-                    b.box_size.1,
-                    &b.shadow_color,
-                );
-                canvas.filled_rect(
-                    b.box_position.0,
-                    b.box_position.1,
-                    b.box_size.0,
-                    b.box_size.1,
-                    &b.color,
-                );
-            }
-            canvas.filled_rect(
-                s.my_box.box_position.0 + 1,
-                s.my_box.box_position.1 + 1,
-                s.my_box.box_size.0,
-                s.my_box.box_size.1,
-                &s.my_box.shadow_color,
-            );
-            canvas.filled_rect(
-                s.my_box.box_position.0,
-                s.my_box.box_position.1,
-                s.my_box.box_size.0,
-                s.my_box.box_size.1,
-                &s.my_box.color,
-            );
-
+            s.board.render(canvas);
+            
             // RENDER END
 
             canvas.render()?;
