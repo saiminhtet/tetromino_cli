@@ -1,9 +1,10 @@
 use anyhow::Result;
+use pixel_loop;
 use pixel_loop::canvas::{self, Canvas, CrosstermCanvas, RenderableCanvas};
 use pixel_loop::input::{CrosstermInputState, KeyboardKey, KeyboardState};
 use pixel_loop::rand::Rng;
 use pixel_loop::{color::*, NextLoopState};
-
+use pixel_loop::color::Color;
 #[derive(Debug)]
 enum TetrominoShape {
     L,

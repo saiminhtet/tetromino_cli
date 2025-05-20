@@ -1,10 +1,10 @@
 [package]
-name = "trivial_cli_demo"
+name = "tetromino_cli"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pixel_loop = { version = "*", path = "../pixel_loop/", default-features = false, features = [
+pixel_loop = { version = "*", default-features = false, features = [
   "crossterm",
 ] }
 anyhow = "1.0.92"
